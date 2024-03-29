@@ -1,0 +1,9 @@
+{
+    "cmake.configureOnOpen": false,
+    "files.associations": {
+        "*.ejs": "html",
+        "*.rsproj": "plaintext",
+        "*.undefied": "ruby",
+        "raylib.h": "c"
+    }
+}
