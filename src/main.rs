@@ -169,7 +169,13 @@ fn main() {
             }
         }
 
-        gui_main::update_music(&mut audio, &mut playlist, &thread, &mut rl, &mut state_maingui);
+        gui_main::update_music(
+            &mut audio,
+            &mut playlist,
+            &thread,
+            &mut rl,
+            &mut state_maingui,
+        );
     }
 }
 
