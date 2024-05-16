@@ -550,6 +550,25 @@ impl Playlist {
                 self.__render_current_selected += 1;
                 self.adjust_center_song(self.__render_current_selected, d.get_screen_height());
             }
+            if d.is_key_pressed(KeyboardKey::KEY_PAGE_UP) {
+                self.__render_current_selected = self.__render_current_selected.saturating_sub(10);
+                self.adjust_center_song(self.__render_current_selected, d.get_screen_height());
+            }
+            if d.is_key_pressed(KeyboardKey::KEY_PAGE_DOWN) {
+                self.__render_current_selected += 10;
+                if self.__render_current_selected >= self.len() {
+                    self.__render_current_selected = self.len() - 1;
+                }
+                self.adjust_center_song(self.__render_current_selected, d.get_screen_height());
+            }
+            if d.is_key_pressed(KeyboardKey::KEY_HOME) {
+                self.__render_current_selected = 0;
+                self.adjust_center_song(self.__render_current_selected, d.get_screen_height());
+            }
+            if d.is_key_pressed(KeyboardKey::KEY_END) {
+                self.__render_current_selected = self.len() - 1;
+                self.adjust_center_song(self.__render_current_selected, d.get_screen_height());
+            }
         }
 
         let width = d.get_screen_width() - 20;

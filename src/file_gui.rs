@@ -275,18 +275,44 @@ pub fn render_file_gui(
     } else {
         gui_state.cur_dir_entries.len() as u32
     };
+
+    macro_rules! sync_layout {
+        () => {
+            let offset_top = (height - 30) / 2;
+        let y_coord = (gui_state.selected * 30 + 5) as i32;
+        gui_state.scroll_value = -(y_coord - offset_top).max(0) as f32;
+        };
+    }
     if d.is_key_pressed(KeyboardKey::KEY_UP) && gui_state.selected > 0 {
         gui_state.selected -= 1;
 
-        let offset_top = (height - 30) / 2;
-        let y_coord = (gui_state.selected * 30 + 5) as i32;
-        gui_state.scroll_value = -(y_coord - offset_top).max(0) as f32;
+        sync_layout!();
     } else if d.is_key_pressed(KeyboardKey::KEY_DOWN) && gui_state.selected <= max_val {
         gui_state.selected += 1;
 
-        let offset_top = (height - 30) / 2;
-        let y_coord = (gui_state.selected * 30 + 5) as i32;
-        gui_state.scroll_value = -(y_coord - offset_top).max(0) as f32;
+        sync_layout!();
+    } else if d.is_key_pressed(KeyboardKey::KEY_PAGE_DOWN) {
+        gui_state.selected += 10;
+        if gui_state.selected > max_val + 1 {
+            gui_state.selected = max_val + 1;
+        }
+
+        sync_layout!();
+    } else if d.is_key_pressed(KeyboardKey::KEY_PAGE_UP) {
+        gui_state.selected = gui_state.selected.saturating_sub(10);
+        if gui_state.selected < 1 {
+            gui_state.selected = 1; // to avoid accidentally unfocusing all buttons, which should be possible with page-up and page-down keys
+        }
+
+        sync_layout!();
+    } else if d.is_key_pressed(KeyboardKey::KEY_HOME) {
+        gui_state.selected = 1;
+        
+        sync_layout!();
+    } else if d.is_key_pressed(KeyboardKey::KEY_END) {
+        gui_state.selected = max_val + 1;
+
+        sync_layout!();
     }
 
     if selected != 0 {
