@@ -1,38 +1,119 @@
 use std::{
-    ffi::CStr,
-    fs::{self, DirEntry},
+    ffi::{CStr, OsStr},
+    fs::{self, read_to_string, DirEntry},
     io,
     ops::Deref,
     path::{Path, PathBuf},
 };
 
 use raylib::{
-    audio::{Music, RaylibAudio}, rstr, RaylibThread
+    audio::{Music, RaylibAudio},
+    rstr, RaylibThread,
 };
 
 #[derive(Clone)]
 pub struct SongEntry {
     path: PathBuf,
     filename: Vec<u8>,
+    author: Vec<u8>,
 }
 
 impl SongEntry {
-    pub fn new(path: PathBuf) -> Option<Self> {
-        if let Some(file) = path.file_stem() {
-            let mut vec = file.as_encoded_bytes().to_vec();
-            if vec.len() < 1 {
-                return None;
-            }
-            if vec[vec.len() - 1] != 0 {
-                vec.push(0);
-            }
-            return Some(Self {
-                path,
-                filename: vec,
-            });
-        } else {
-            None
+    // arbitrary directories: _, unordered, any, unknown, random
+
+    fn process_os_str_case_arbitrary_dir(filestem: &str) -> Option<(Vec<u8>, Vec<u8>)> {
+        // case: /.../author - name.*
+        // or: /.../name.* with unknown author
+        let mut split_filename = filestem.split('-');
+        let mut vec_1 = split_filename.next()?.trim().as_bytes().to_vec();
+
+        if vec_1.len() < 1 {
+            vec_1.push(0);
         }
+        if vec_1[vec_1.len() - 1] != 0 {
+            vec_1.push(0);
+        }
+
+        if let Some(next_part) = split_filename.next() {
+            // case: /.../author - name.*
+            // vec_1 author
+            // str_name: name
+            let mut next_split = split_filename.next();
+            let mut str_name = if next_split.is_some() {
+                next_part.trim_start().to_string()
+            } else {
+                next_part.trim().to_string()
+            };
+
+            while let Some(part) = next_split {
+                let next = split_filename.next();
+                if next.is_some() {
+                    str_name.push_str(part);
+                } else {
+                    str_name.push_str(part.trim_end());
+                }
+                next_split = next;
+            }
+            // author
+            let mut vec_2 = str_name.as_bytes().to_vec();
+
+            if vec_2.len() < 1 {
+                vec_2.push(0);
+            }
+            if vec_2[vec_2.len() - 1] != 0 {
+                vec_2.push(0);
+            }
+
+            return Some((vec_2, vec_1));
+        }
+        // case: /.../name.*
+        // vec_1: name
+        // _: author
+
+        Some((vec_1, vec![0]))
+    }
+
+    fn process_os_str(filestem: &str, parent: &OsStr) -> Option<(Vec<u8>, Vec<u8>)> {
+        if parent == "_"
+            || parent == "unordered"
+            || parent == "any"
+            || parent == "unknown"
+            || parent == "random"
+        {
+            // case: /.../author - name.*
+            // or: /.../name.* with unknown author
+            Self::process_os_str_case_arbitrary_dir(filestem)
+        } else {
+            // case: /.../author/name.*
+            let mut name = filestem.as_bytes().to_vec();
+            let mut author = parent.as_encoded_bytes().to_vec();
+            if name.len() < 1 {
+                name.push(0);
+            }
+            if name[name.len() - 1] != 0 {
+                name.push(0);
+            }
+            if author.len() < 1 {
+                author.push(0);
+            }
+            if author[author.len() - 1] != 0 {
+                author.push(0);
+            }
+
+            Some((name, author))
+        }
+    }
+
+    pub fn new(path: PathBuf) -> Option<Self> {
+        let (filename, author) = Self::process_os_str(
+            path.file_stem()?.to_str()?,
+            path.parent().map(|path| path.file_name()).flatten()?,
+        )?;
+        return Some(Self {
+            path,
+            filename,
+            author,
+        });
     }
 
     pub fn file_name<'a>(&'a self) -> &'a CStr {
@@ -43,8 +124,23 @@ impl SongEntry {
 pub struct PlayingSong {
     // path: PathBuf,
     filename: Vec<u8>,
+    author: Vec<u8>,
     music: Music,
     idx: usize,
+    pub lyrics: String,
+    pub lyrics_dimensions: Option<(i32, i32)>,
+}
+
+fn load_lyrics(path: &Path) -> String {
+    let Some(mut name) = path.file_name().map(std::ffi::OsStr::to_os_string) else {
+        return String::new();
+    };
+    name.push(".lyrics");
+    let Some(parent) = path.parent() else {
+        return String::new();
+    };
+    let lyric_path = parent.join(name);
+    read_to_string(&lyric_path).unwrap_or_else(|_| String::new())
 }
 
 impl PlayingSong {
@@ -54,8 +150,10 @@ impl PlayingSong {
         thread: &RaylibThread,
         audio: &mut RaylibAudio,
     ) -> Result<Self, PlayError> {
+        let lyrics = load_lyrics(&entry.path);
         let mut this = Self {
             filename: entry.filename.clone(),
+            author: entry.author.clone(),
             // path: entry.path.clone(),
             idx,
             music: Music::load_music_stream(
@@ -63,6 +161,8 @@ impl PlayingSong {
                 entry.path.to_str().ok_or(PlayError::FileNameInvalid)?,
             )
             .map_err(|err| PlayError::IoError(err))?,
+            lyrics,
+            lyrics_dimensions: None,
         };
         this.music.looping = false;
         audio.play_music_stream(&mut this.music);
@@ -144,7 +244,6 @@ pub struct Playlist {
 }
 
 pub enum PlayError {
-    OutOfBounds,
     IoError(String),
     FileNameInvalid,
 }
@@ -162,32 +261,23 @@ impl Default for Playlist {
 }
 
 impl Playlist {
-    #[allow(dead_code)]
-    pub fn play(
+    pub fn play_invalidated_ids_no_err(
         &mut self,
         idx: usize,
         thread: &RaylibThread,
         audio: &mut RaylibAudio,
         screen_height: i32,
-    ) -> Result<(), PlayError> {
+    ) {
         println!("playing song #{idx}");
-        if let Some(mut song) = self.current_song.take() {
-            if song.idx == idx {
-                song.seek(0.0, audio);
-                self.current_song = Some(song);
-                return Ok(());
-            } else {
-                song.pause(audio);
-            }
-        }
 
-        if let Some(song) = self.songs.get(idx) {
-            self.current_song = Some(PlayingSong::new_play(song, idx, thread, audio)?);
-            self.adjust_center_song(idx, screen_height);
-            Ok(())
-        } else {
-            Err(PlayError::OutOfBounds)
-        }
+        let Some(song) = self.songs.get(idx) else {
+            return;
+        };
+        let Ok(song) = PlayingSong::new_play(song, idx, thread, audio) else {
+            return;
+        };
+        self.current_song = Some(song);
+        self.adjust_center_song(idx, screen_height);
     }
 
     pub fn play_ignore_err(
@@ -260,13 +350,17 @@ impl Playlist {
 
     pub fn shuffle(&mut self) {
         let len = self.songs.len();
-        if len < 1 { return; }
+        if len < 1 {
+            return;
+        }
         let mut tmp_song = self.songs[0].clone();
         for _ in 0..len {
             let max_random_index = (self.songs.len() - 1) as i32;
             let idx_old = unsafe { raylib::ffi::GetRandomValue(0, max_random_index) as usize };
             let idx_new = unsafe { raylib::ffi::GetRandomValue(0, max_random_index) as usize };
-            if idx_old == idx_new { continue; }
+            if idx_old == idx_new {
+                continue;
+            }
 
             if let Some(ref mut song) = self.current_song {
                 if song.idx == idx_old {
@@ -346,6 +440,20 @@ impl Playlist {
         }
     }
 
+    pub fn author_vec<'a>(&'a self) -> Option<&'a Vec<u8>> {
+        match self.current_song {
+            Some(ref song) => Some(&song.author),
+            _ => None,
+        }
+    }
+
+    pub fn currently_playing(&mut self) -> Option<&mut PlayingSong> {
+        match self.current_song {
+            Some(ref mut v) => Some(v),
+            None => None,
+        }
+    }
+
     pub fn clear(&mut self, audio: &mut RaylibAudio) {
         self.songs.clear();
         self.stop_playing(audio);
@@ -376,6 +484,40 @@ impl Playlist {
         }
 
         Ok(())
+    }
+
+    pub fn remove_song(
+        &mut self,
+        idx: usize,
+        thread: &RaylibThread,
+        audio: &mut RaylibAudio,
+        screen_height: i32,
+    ) {
+        if idx >= self.songs.len() {
+            return;
+        }
+        self.songs.remove(idx);
+        let len = self.len();
+        if self.__render_current_selected > len && len > 0 {
+            self.__render_current_selected = len - 1;
+        }
+        if let Some(val) = self.currently_playing() {
+            let song_index = val.idx;
+            if song_index == idx {
+                // play the next one or the previous one, whichever exists (or stop the music)
+                if song_index >= len && len > 0 {
+                    // the next one doesnt exist and the previous one does
+                    self.play_invalidated_ids_no_err(song_index - 1, thread, audio, screen_height);
+                } else if len > 0 && song_index < len {
+                    // the next one does exist
+                    self.play_invalidated_ids_no_err(song_index, thread, audio, screen_height);
+                } else {
+                    self.stop_playing(audio);
+                }
+            } else if val.idx > idx {
+                val.idx -= 1;
+            }
+        }
     }
 
     #[allow(dead_code)]

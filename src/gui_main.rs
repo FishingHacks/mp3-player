@@ -33,6 +33,7 @@ pub const ICON_FILE_SAVE: &std::ffi::CStr = rstr!("#006#");
 pub const ICON_FILE_ADD: &std::ffi::CStr = rstr!("#008#");
 pub const ICON_FOLDER_ADD: &std::ffi::CStr = rstr!("#221#");
 pub const ICON_FILE_CLOSE: &std::ffi::CStr = rstr!("#009#");
+pub const ICON_LYRICS: &std::ffi::CStr = rstr!("#219#");
 
 pub fn gui_get_style_color(control: GuiControl, property: GuiControlProperty) -> Color {
     unsafe {
@@ -222,8 +223,8 @@ pub fn render_main_gui(
             }
         }
         if gui_state.current_y == 1 {
-            // the 7 top bar buttons
-            if rl.is_key_pressed(KeyboardKey::KEY_RIGHT) && gui_state.current_x < 6 {
+            // the 8 top bar buttons
+            if rl.is_key_pressed(KeyboardKey::KEY_RIGHT) && gui_state.current_x < 7 {
                 gui_state.current_x += 1;
             }
             if rl.is_key_pressed(KeyboardKey::KEY_LEFT) && gui_state.current_x > 0 {
@@ -284,7 +285,7 @@ pub fn render_main_gui(
 
     let mut d = rl.begin_drawing(&thread);
 
-    if gui_state.current_y == 1 && gui_state.current_x == 6 {
+    if gui_state.current_y == 1 && gui_state.current_x == 7 {
         gui_highlight_start_single_control(GuiControl::BUTTON);
     }
 
@@ -297,7 +298,7 @@ pub fn render_main_gui(
         ),
         None,
     ) || (gui_state.current_y == 1
-        && gui_state.current_x == 6
+        && gui_state.current_x == 7
         && d.is_key_pressed(KeyboardKey::KEY_ENTER))
     {
         return Action::ExitProgram;
@@ -330,6 +331,9 @@ pub fn render_main_gui(
     if window_bar_button!(5, ICON_FILE_CLOSE, gui_state, d) {
         playlist.clear(audio);
     }
+    if window_bar_button!(6, ICON_LYRICS, gui_state, d) {
+        action = Action::SwitchGuiScreen(GuiScreen::Lyrics);
+    }
 
     d.gui_set_style(
         GuiControl::BUTTON,
@@ -340,7 +344,7 @@ pub fn render_main_gui(
     let progress = playlist.progress(&audio);
 
     let soundcontrol_start_x = (d.get_screen_width() / 2 - 90) as f32;
-    let soundcontrol_y = (d.get_screen_height() - 80) as f32;
+    let soundcontrol_y = (d.get_screen_height() - 75) as f32;
 
     if gui_state.current_y == 3 {
         gui_highlight_start();
@@ -503,8 +507,24 @@ pub fn render_main_gui(
     d.draw_text(
         text,
         10,
-        soundcontrol_y as i32 - 50,
+        soundcontrol_y as i32 - 60,
         20,
+        Color::get_color(u32::from_be_bytes(
+            d.gui_get_style(GuiControl::DEFAULT, 2 /* TEXT_COLOR_NORMAL */)
+                .to_be_bytes(),
+        )),
+    );
+
+    let author = if let Some(author) = playlist.author_vec() {
+        unsafe { std::mem::transmute::<&[u8], &str>(&author[0..author.len() - 1]) }
+    } else {
+        ""
+    };
+    d.draw_text(
+        author,
+        10,
+        soundcontrol_y as i32 - 37,
+        10,
         Color::get_color(u32::from_be_bytes(
             d.gui_get_style(GuiControl::DEFAULT, 2 /* TEXT_COLOR_NORMAL */)
                 .to_be_bytes(),
@@ -539,6 +559,10 @@ impl Playlist {
                     audio,
                     d.get_screen_height(),
                 );
+            }
+            if d.is_key_pressed(KeyboardKey::KEY_DELETE) || d.is_key_pressed(KeyboardKey::KEY_BACKSPACE) {
+                self.remove_song(self.__render_current_selected, thread, audio, d.get_screen_height());
+                self.adjust_center_song(self.__render_current_selected, d.get_screen_height());
             }
             if d.is_key_pressed(KeyboardKey::KEY_UP) && self.__render_current_selected > 0 {
                 self.__render_current_selected -= 1;

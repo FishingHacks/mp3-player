@@ -10,18 +10,21 @@ use raylib::audio::RaylibAudio;
 // }
 
 mod file_gui;
+mod gui_lyrics;
 mod gui_main;
 mod song;
 use song::Playlist;
 
 use crate::{
     file_gui::FileGuiState,
+    gui_lyrics::{render_lyrics_gui, LyricsGuiState},
     gui_main::{render_main_gui, Action, MainGuiState},
 };
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum GuiScreen {
     Player,
+    Lyrics,
     FileSelectAddFolder,
     FileSelectAddFile,
     FileSelectOpenFolder,
@@ -55,6 +58,28 @@ fn main() {
 
     println!("Initializing Raylib");
 
+    // register ICON_FOLDER
+    load_custom_icon(
+        217,
+        [
+            0x0, 0x0042007e, 0x40027fc2, 0x40024002, 0x40024002, 0x40024002, 0x7ffe4002, 0x0,
+        ],
+    );
+    // register ICON_FILE
+    load_custom_icon(
+        218,
+        [
+            0x3ff00000, 0x201c2010, 0x20042004, 0x20042004, 0x20042004, 0x20042004, 0x20042004,
+            0x00003ffc,
+        ],
+    );
+    // register ICON_LYRICS
+    load_custom_icon(
+        219,
+        [
+            0x0, 0x18000800, 0x28002bfc, 0x0e0008fc, 0x00000efc, 0x00003ffc, 0x00003ffc, 0x0
+        ],
+    );
     // register ICON_AUDIO_MUTE
     load_custom_icon(
         220,
@@ -90,21 +115,6 @@ fn main() {
             0x0, 0x3ffc0000, 0x20042004, 0x20002000, 0x20202000, 0x3ff82030, 0x00200030, 0x0,
         ],
     );
-    // register ICON_FOLDER
-    load_custom_icon(
-        217,
-        [
-            0x0, 0x0042007e, 0x40027fc2, 0x40024002, 0x40024002, 0x40024002, 0x7ffe4002, 0x0,
-        ],
-    );
-    // register ICON_FILE
-    load_custom_icon(
-        218,
-        [
-            0x3ff00000, 0x201c2010, 0x20042004, 0x20042004, 0x20042004, 0x20042004, 0x20042004,
-            0x00003ffc,
-        ],
-    );
 
     let (mut rl, thread) = raylib::init()
         .width(350)
@@ -124,6 +134,7 @@ fn main() {
     playlist.play_ignore_err(0, &thread, &mut audio, rl.get_screen_height());
 
     let mut state_maingui: MainGuiState = Default::default();
+    let mut state_lyricsgui: LyricsGuiState = Default::default();
     let mut state_filegui: FileGuiState = FileGuiState::default(&musicdir, GuiScreen::Player)
         .expect("Failed to initialise the file gui");
     let mut cur_screen: GuiScreen = GuiScreen::Player;
@@ -141,6 +152,7 @@ fn main() {
                 &mut rl,
                 &mut state_maingui,
             ),
+            GuiScreen::Lyrics => render_lyrics_gui(&mut playlist, &thread, &mut rl, &mut state_lyricsgui),
             GuiScreen::FileSelectAddFolder
             | GuiScreen::FileSelectAddFile
             | GuiScreen::FileSelectOpenFolder
@@ -158,6 +170,11 @@ fn main() {
         match action {
             Action::None => {}
             Action::ExitProgram => break,
+            Action::SwitchGuiScreen(screen @ (GuiScreen::Player | GuiScreen::Lyrics)) => {
+                state_maingui = Default::default();
+                state_lyricsgui = Default::default();
+                cur_screen = screen;
+            }
             Action::SwitchGuiScreen(screen) => {
                 if let Ok(state) = FileGuiState::default(&musicdir, screen) {
                     state_filegui = state;
